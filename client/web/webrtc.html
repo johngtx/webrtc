@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+	<script src="socket.js"></script>
+</head><body>
+   
+	 <!--<script src="http://192.168.0.85/adapter.js"></script> -->
+	<script src="./socket.js"></script>
+	<script src="./adapter.js"></script>
+	 
+	
+     <script>
+//define status code
+var RETURN_TRYING 	= 100;
+var RETURN_RINGING 	= 180;
+var RETURN_OK 		= 200;
+var RETURN_UNAUTHORIZED	= 401;
+var RETURN_PAYMENTREQUIRED	= 402;
+var RETURN_FORBIDDEN 		= 403;
+var RETURN_NOTFOUND 		= 404;
+var STATE_OFFLINE = 0;
+var STATE_UNREG = 1;
+var STATE_REG = 2;
+var signalPeriod=300;//???????????
+var signalTimes=10;//???????????
+//var getvidebutton = document.getElementById("get-button");
+//getvidebutton.onclick = getclk;
+//var onclick="getclk()" 
+ 
+ 
+		var pc1=null;
+		var pc2=null;
+		var lStream;
+		var sfrom,sto1,sto2,callid1,callid2;//sfrom??,sto1??1,sto2??2,callid1,callid2
+		var signalservers = ['http://39.108.136.167:3101','http://signal.gcall.com:4000'];//???????
+		var triedSignal=0;//???????????
+		var signalCount=signalservers.length;//???????
+		var curSignal=Math.floor(Math.random()*signalCount);//???,0----signalCount-1
+		var curState=STATE_OFFLINE;
+		var checkTimes=0;
+		var socket=null;
+ 
+		var iceServer = {
+            "iceServers": [{
+                "url": "turn:39.108.136.167:13478",
+                "username": "yiyun",
+                "credential": "123456"
+            } ]
+        };
+		var iceServer2 = {
+            "iceServers": [{
+                "url": "turn:turn.gcall.com:3478",
+                "username": "hiuniray",
+                "credential": "hi123"
+           }]
+        };	
+		var iceServer3 = {
+            "iceServers": [{
+                "url": "turn:14.29.82.222:3478",
+				"username": "turn2016server",
+                "credential": "gcallturn2016"
+            },{
+                "url": "turn:turn.gcall.com:3478",
+				"username": "hiuniray",
+                "credential": "hi123"
+            } ]
+        };		
+	
+		function getState(){
+			checkTimes++;
+			if(curState===STATE_REG){
+				pc1 = new RTCPeerConnection(iceServer);
+				pc1.addStream(lStream);
+				pc1.onaddstream = function(ev){          
+					attachMediaStream(document.getElementById("remoteVideo1"), ev.stream);
+				};
+				alert('use signalserver['+curSignal+']');
+			}
+			else{
+				if(checkTimes>=signalTimes){
+					if(triedSignal>=signalCount){
+						alert('no signalserver can use');
+						document.getElementById("reg-button").disabled=false;
+						return;
+					}
+					else{
+						curSignal++;
+						if(curSignal>=signalCount){
+							curSignal=0;
+						}
+						signalinit(curSignal);
+					}
+				}
+				else{
+					setTimeout("getState()", signalPeriod);
+				}
+			}
+		}
+		
+		function signalinit(signalid){
+			if(signalid>signalCount || signalid<0){
+				socket=null;
+				return;
+			}
+			else{
+				triedSignal++;
+				if(triedSignal>signalCount){
+					document.getElementById("reg-button").disabled=false;
+					return;
+				}
+				curState=STATE_OFFLINE;
+				
+				
+				if(socket===null){}
+				else{
+					socket.close();
+					socket=null;
+				}
+				socket = io.connect(signalservers[signalid]); 
+				if(socket!=null){
+					console.log('socket not null '+signalservers[signalid]);
+					curState=STATE_UNREG;
+					socket.emit('message',JSON.stringify({
+						"event": "_register",
+						"from": sfrom,
+						"to": sfrom,
+						"callid": sfrom,
+						"sessionid": sfrom                    
+					}));
+					socket.on('connect_failed', function(){ 
+						curSignal++;
+						if(curSignal>=signalid){
+							curSignal=0;
+						}
+						signalinit(curSignal);
+						return;
+					});
+					socket.on('message', function (event) {
+						console.log('web recv msg: ', event);
+						var json = JSON.parse(event);
+						console.log('onmessage: ', json);
+						if(json.to!=sfrom){
+							return ;
+						}
+						//?????ICE???,??????PeerConnection?,???????session??????????
+						if( json.event === "_ice_candidate" ){	
+							if( json.callid === callid1 ){
+									//???IE8????????,??????,???????
+								pc1.addIceCandidate(new RTCIceCandidate(json.data.candidate));
+							}
+							else if( json.callid === callid2){
+								pc2.addIceCandidate(new RTCIceCandidate(json.data.candidate));
+							}
+						} 			 
+						else if(json.event === "_offer") {
+								console.log('onmessage: _offer', json);
+								
+								console.log('autoanswer2');
+								pc1.setRemoteDescription(new RTCSessionDescription(json.data.sdp));
+								
+								document.getElementById("callee1").value=sto1;
+								document.getElementById("callid1").value=callid1;
+								
+								document.getElementById("callee1").enabled=false;	
+			 
+								document.getElementById("callee2").enabled=false;	
+								document.getElementById("answer-button").disabled=false;
+								document.getElementById("reject-button").disabled=false;
+								console.log('autoanswer3');
+								
+								//pc1 = new RTCPeerConnection(iceServer);
+								sto1=json.from;
+								callid1=json.callid;
+								console.log('autoanswer1');
+								pc1.onicecandidate = function(ev){
+									console.log('in onicecandidate1');
+									if (ev.candidate !== null) {
+										
+										socket.emit('message',JSON.stringify({
+											"event": "_ice_candidate",
+											"from": sfrom,
+											"to": sto1,
+											"callid": callid1,
+											"data": {
+											"candidate": { "candidate": ev.candidate.candidate, "sdpMid": ev.candidate.sdpMid, "sdpMLineIndex": ev.candidate.sdpMLineIndex }
+											}
+										}));
+								console.log('in onicecandidate3');
+			 
+									}
+								};
+								
+								//pc1.addStream(lStream);
+								//pc1.onaddstream = function(ev){          
+								//	attachMediaStream(document.getElementById("remoteVideo1"), ev.stream);
+								//};
+								if(document.getElementById("autoanswer").checked){
+									console.log('autoanswer');
+									ansclk();
+								}
+								else{
+									console.log('no autoanswer');
+								}
+							}
+						else if(json.event === "_answer") {
+							if(json.from == sto1){
+								pc1.setRemoteDescription(new RTCSessionDescription(json.data.sdp));
+								document.getElementById("bye1-button").disabled = false;
+								document.getElementById("cancel1-button").disabled = true;
+							}
+							else if(json.from == sto2){
+								pc2.setRemoteDescription(new RTCSessionDescription(json.data.sdp));
+								document.getElementById("bye2-button").disabled = false;
+								document.getElementById("cancel2-button").disabled = true;
+							}
+						}
+						else if(json.event === "_response") {
+							
+							if(json.data.type === "_register" && json.data.status_code===RETURN_OK) {
+								console.log('onmessage: register 200', json);
+								curState=STATE_REG;
+								document.getElementById("call1-button").disabled = false;
+								document.getElementById("call2-button").disabled = false;
+								document.getElementById("reg-button").disabled = true;
+								document.getElementById("unreg-button").disabled = false;
+							}
+							else if(json.data.type === "_unregister" && json.data.status_code===RETURN_OK) {
+								console.log('onmessage: unregister 200', json);
+								document.getElementById("call1-button").disabled = true;
+								document.getElementById("call2-button").disabled = true;
+								document.getElementById("reg-button").disabled = false;
+								document.getElementById("unreg-button").disabled = true;
+								sfrom="";
+							}
+						}
+						else if(json.event === "_cancel") {
+							if(json.from == sto1){
+								delete pc1;
+								document.getElementById("call1-button").disabled = false;
+								document.getElementById("reject-button").disabled = true;
+								document.getElementById("answer-button").disabled = true;
+							}
+							else if(json.from == sto2){
+							}
+						}
+						else if(json.event === "_reject") {
+							if(json.from == sto1){
+								delete pc1;
+								document.getElementById("call1-button").disabled = false;
+								document.getElementById("cancel1-button").disabled = true;
+							
+							}
+							else if(json.from == sto2){
+								delete pc2;
+								document.getElementById("call2-button").disabled = false;
+								document.getElementById("cancel2-button").disabled = true;
+							}
+						   
+						}
+						else if(json.event === "_bye") {
+						   if(json.from == sto1){
+								delete pc1;
+								document.getElementById("call1-button").disabled = false;
+								document.getElementById("cancel1-button").disabled = true;
+								document.getElementById("bye1-button").disabled = true;
+								document.getElementById("answer-button").disabled = true;
+							}
+							else if(json.from == sto2){
+								delete pc2;
+								document.getElementById("call2-button").disabled = false;
+								document.getElementById("cancel2-button").disabled = true;
+								document.getElementById("bye2-button").disabled = true;
+							}
+						}
+					});
+					setTimeout("getState()", signalPeriod);
+				}
+				else{
+					console.log('socket null ');
+					curSignal++;
+					if(curSignal>=signalCount){
+						curSignal=0;
+					}
+					signalinit(curSignal);
+				}
+			}
+		}
+		
+		function regclk() {			
+			sfrom = document.getElementById("user_name").value;
+			if(sfrom===''){
+				alert('no username');
+				return;
+			}
+			triedSignal=0;
+			checkTimes=0;
+			curState=STATE_OFFLINE;
+			if(document.getElementById("signallist").value==='2'){
+				curSignal=Math.floor(Math.random()*signalCount);//???,0----signalCount-1
+				console.log('random curSignal='+curSignal);
+			}
+			else{
+				curSignal=document.getElementById("signallist").value;
+				console.log('select curSignal='+curSignal);
+			}
+			if(document.getElementById("iceServer").value==='turn.gcall.com:3478'){
+				//alert("turn.gcall.com:3478");
+				iceServer=iceServer2;
+			}
+			else if(document.getElementById("iceServer").value==='both'){
+				//alert("both");
+				iceServer=iceServer3;
+			}
+			document.getElementById("reg-button").disabled=true;
+			signalinit(curSignal);			
+		}
+		
+		function unregclk() {
+			sfrom = document.getElementById("user_name").value;
+			console.log('regclk'+sfrom);
+		//	alert("unregclk begin");
+			socket.emit('message',JSON.stringify({
+                    "event": "_unregister",
+					"from": sfrom,
+					"to": sfrom,
+					"callid": sfrom,
+					"sessionid": sfrom                    
+            }));
+		//	alert("unregclk end");
+		}
+		
+		// ??offer?answer???,????session??
+        var sendOfferFn1 = function(desc){
+			
+			pc1.setLocalDescription(desc);	
+			
+			console.log('begin offer socket.emit ');
+            socket.emit('message',JSON.stringify({ 
+                "event": "_offer",
+				"from": sfrom,
+				"to": sto1,
+				"callid": callid1,
+				"mediatype": "both",
+                "data": {
+				   "sdp": { "type":"offer", "sdp": desc.sdp }
+                }
+            }));
+			console.log('end offer socket.emit ');
+ 
+        },
+		sendOfferFn2 = function(desc){
+			
+			pc2.setLocalDescription(desc);	
+			
+			console.log('begin offer socket.emit ');
+            socket.emit('message',JSON.stringify({ 
+                "event": "_offer",
+				"from": sfrom,
+				"to": sto2,
+				"callid": callid2,
+				"mediatype": "both",
+                "data": {
+				   "sdp": { "type":"_offer", "sdp": desc.sdp }
+                }
+            }));
+			console.log('end offer socket.emit ');
+ 
+        },
+        sendAnswerFn = function(desc){
+			pc1.setLocalDescription(desc);	
+		
+			console.log('send ans', JSON.stringify({ 
+                "event": "_answer",
+				"from": sfrom,
+				"to": sto1,
+				"callid": callid1,
+                "data": {
+					 "sdp": { "type":"_answer", "sdp": desc.sdp }
+                }
+            }));
+            socket.emit('message',JSON.stringify({ 
+                "event": "_answer",
+				"from": sfrom,
+				"to": sto1,
+				"callid": callid1,
+                "data": {
+					 "sdp": { "type":"answer", "sdp": desc.sdp }
+                }
+            }));
+        };
+		
+		function call1clk() {
+			sto1 = document.getElementById("callee1").value;	
+			callid1 =document.getElementById("callid1").value;
+			if(sto1===''){
+			alert("no callee1");
+			return;
+			}
+			if(callid1===''){
+			alert("no callid1");
+			return;
+			}
+		//	pc1 = new RTCPeerConnection(iceServer);
+			// ??ICE????????
+			pc1.onicecandidate = function(event){
+				console.log('in onicecandidate1');
+				if (event.candidate !== null) {
+			
+				
+					console.log('in onicecandidate2');
+					socket.emit('message',JSON.stringify({
+						"event": "_ice_candidate",
+						"from": sfrom,
+						"to": sto1,
+						"callid": callid1,
+						"data": {
+							"candidate": { "candidate": event.candidate.candidate, "sdpMid": event.candidate.sdpMid, "sdpMLineIndex": event.candidate.sdpMLineIndex }
+						}
+					}));
+				console.log('in onicecandidate3');
+ 
+				}
+			};
+			
+			
+			pc1.createOffer(sendOfferFn1, function (error) {
+							console.log('Failure callback: ' + error);
+						});
+			document.getElementById("cancel1-button").disabled = false;   
+			document.getElementById("call1-button").disabled = true; 
+            }
+		function ansclk() {
+			pc1.createAnswer(sendAnswerFn, function (error) {
+                        console.log('Failure callback: ' + error);
+                    });
+			document.getElementById("bye1-button").disabled = false;
+			document.getElementById("answer-button").disabled = true;
+			document.getElementById("reject-button").disabled = true;
+		}
+		function rejectclk() {
+			delete pc1;
+			socket.emit('message',JSON.stringify({
+                    "event": "_reject",
+					"from": sfrom,
+					"to": sto1,
+					"callid": callid1,
+        
+            }));		
+			document.getElementById("cancel1-button").disabled = true;   
+			document.getElementById("call1-button").disabled = false; 
+			sto1 = '';	
+			callid1 ='';
+		}
+		function cancel1clk() {		
+		//	delete pc1;
+			socket.emit('message',JSON.stringify({
+                    "event": "_cancel",
+					"from": sfrom,
+					"to": sto1,
+					"callid": callid1,
+        
+            }));		
+			document.getElementById("cancel1-button").disabled = true;   
+			document.getElementById("call1-button").disabled = false; 
+			sto1 = '';	
+			callid1 ='';
+            }
+		function bye1clk() {		
+		//	delete pc1;
+		pc1.close();
+			socket.emit('message',JSON.stringify({
+                    "event": "_bye",
+					"from": sfrom,
+					"to": sto1,
+					"callid": callid1,
+        
+            }));		
+			document.getElementById("cancel1-button").disabled = true;   
+			document.getElementById("bye1-button").disabled = true;   
+			document.getElementById("call1-button").disabled = false; 
+			sto1 = '';	
+			callid1 ='';
+            }
+		function call2clk() {
+			sto2 = document.getElementById("callee2").value;	
+			callid2 =document.getElementById("callid2").value;
+			if(sto2===''){
+			alert("no callee2");
+			return;
+			}
+			if(callid2===''){
+			alert("no callid2");
+			return;
+			}
+			pc2 = new RTCPeerConnection(iceServer);
+			// ??ICE????????
+			pc2.onicecandidate = function(event){
+				console.log('in onicecandidate1');
+				if (event.candidate !== null) {				
+					console.log('in onicecandidate2');
+					socket.emit('message',JSON.stringify({
+						"event": "_ice_candidate",
+						"from": sfrom,
+						"to": sto2,
+						"callid": callid2,
+						"data": {
+							"candidate": { "candidate": event.candidate.candidate, "sdpMid": event.candidate.sdpMid, "sdpMLineIndex": event.candidate.sdpMLineIndex }
+						}
+					}));
+				console.log('in onicecandidate3');
+ 
+				}
+			};
+			// ?????????????,???????video?????
+			pc2.addStream(lStream);
+			pc2.onaddstream = function(event){          
+				attachMediaStream(document.getElementById("remoteVideo2"), event.stream);
+			};
+			pc2.createOffer(sendOfferFn2, function (error) {
+							console.log('Failure callback: ' + error);
+						});
+			             
+            document.getElementById("cancel2-button").disabled = false;   
+			document.getElementById("call2-button").disabled = true; 
+		}
+		function cancel2clk() {		
+			delete pc2;
+			socket.emit('message',JSON.stringify({
+                    "event": "_cancel",
+					"from": sfrom,
+					"to": sto2,
+					"callid": callid2,
+        
+            }));		
+			document.getElementById("cancel2-button").disabled = true;   
+			document.getElementById("call2-button").disabled = false; 
+			sto2 = '';	
+			callid2 ='';
+            }
+		function bye2clk() {		
+			delete pc2;
+			socket.emit('message',JSON.stringify({
+                    "event": "_bye",
+					"from": sfrom,
+					"to": sto2,
+					"callid": callid2,
+        
+            }));		
+			document.getElementById("cancel1-button").disabled = true;   
+			document.getElementById("bye2-button").disabled = true;   
+			document.getElementById("call2-button").disabled = false; 
+			sto2 = '';	
+			callid2 ='';
+            }
+		var video_constraints = {
+ mandatory: {
+  "minWidth": "320",
+   "maxWidth": "320",
+   "minHeight": "320",
+   "maxHeight": "320",
+   "minFrameRate": "30"
+ },
+ optional: []
+};
+		function getclk() {
+			console.log('getclk begin');
+			getUserMedia({
+				"audio": true,
+				"video": true
+			}, function(stream){
+            //????????video??????
+					
+					console.log('getUserMedia OK ');
+					
+					
+					
+					attachMediaStream(document.getElementById('localVideo'), stream);
+					lStream = stream;
+				//	pc1.addStream(lStream);
+					document.getElementById("reg-button").disabled = false;
+					document.getElementById("get-button").disabled = true;
+					console.log('addStream');
+					
+				}, function(error){
+            //???????????
+					console.log('getUserMedia error: ' + error);
+				});
+			console.log('getclk end');	
+		}
+
+function getVideo() {
+	console.log('getVideo begin');
+	getUserMedia({
+		"audio": false,
+		"video": true
+	}, function(stream){
+		//????????video??????
+		console.log('getUserMedia OK ');
+		attachMediaStream(document.getElementById('localVideo'), stream);
+		lStream = stream;
+		//	pc1.addStream(lStream);
+		document.getElementById("reg-button").disabled = false;
+		document.getElementById("get-button").disabled = true;
+		console.log('addStream');
+
+	}, function(error){
+		//???????????
+		console.log('getUserMedia error: ' + error);
+	});
+	console.log('getVideo end');
+}
+
+function getAudio() {
+	console.log('getAudio begin');
+	getUserMedia({
+		"audio": true,
+		"video": false
+	}, function(stream){
+		//????????video??????
+		console.log('getUserMedia OK ');
+		attachMediaStream(document.getElementById('localVideo'), stream);
+		lStream = stream;
+		//	pc1.addStream(lStream);
+		document.getElementById("reg-button").disabled = false;
+		document.getElementById("get-button").disabled = true;
+		console.log('addStream');
+
+	}, function(error){
+		//???????????
+		console.log('getUserMedia error: ' + error);
+	});
+	console.log('getAudio end');
+}
+
+
+function judgeVideoDevice() {
+	console.log('getclk begin');
+	getUserMedia({
+		"audio": false,
+		"video": true
+	}, function(stream){
+	}, function(error){
+		alert("Video Device is error!")
+		return false;
+	});
+}
+
+function judgeAudioDevice() {
+	console.log('getclk begin');
+	getUserMedia({
+		"audio": true,
+		"video": false
+	}, function(stream){
+	}, function(error){
+		alert("Audio Device is error!")
+		return false;
+	});
+}
+    </script>
+	
+	 Local: <br>
+    <video id="localVideo" autoplay="autoplay" width="1000"></video>
+	<br>
+	<button id="get-button" onclick="getclk()">getlocal</button>
+	 <br>
+	 <button id="judge-video" onclick="judgeVideoDevice()">judgeVideoDevice</button>
+	 <br>
+	 <button id="judge-audio" onclick="judgeAudioDevice()">judgeAudioDevice</button>
+	 <br>
+	 <button id="get-video" onclick="getVideo()">getVideo</button>
+	 <br>
+	 <button id="get-audio" onclick="getAudio()">getAudio</button>
+	<br>
+	<select id="signallist">
+		<option selected="selected" value="0">192.168.8.254</option>
+		<option value="1">http://signal.gcall.com:4000</option>
+		<option value="2">random</option>
+	</select>
+	<select id="iceServer">
+		<option selected="selected" value="turn2.gcall.com:3478">turn2.gcall.com:3478</option>
+		<option value="turn.gcall.com:3478">turn.gcall.com:3478</option>
+		<option value="both">both</option>
+	</select>
+	<input vakue="1234567890" id="user_name" type="text">
+	
+	<button onclick="regclk()" disabled="true" id="reg-button">reg</button> 
+	<button disabled="true" onclick="unregclk()" id="unreg-button">unreg</button> 
+	<br>
+    Remote: <br>  
+    <video id="remoteVideo1" autoplay="autoplay"></video><br><input id="callee1" type="text">ID1<input id="callid1" type="text">auto answer<input id="autoanswer" value="autoanswer" type="checkbox"><button disabled="true" onclick="call1clk()" id="call1-button">call1</button>
+	<button disabled="true" onclick="cancel1clk()" id="cancel1-button">CANCEL</button>
+	<button disabled="true" onclick="ansclk()" id="answer-button">ANSWER</button>
+	<button disabled="true" onclick="rejectclk()" id="reject-button">REJECT</button>
+	<button disabled="true" onclick="bye1clk()" id="bye1-button">BYE1</button><br>
+	Remote2: <br>  
+	<video id="remoteVideo2" autoplay="autoplay"></video><br><input id="callee2" type="text">ID2<input id="callid2" type="text"><button disabled="true" onclick="call2clk()" id="call2-button">call2</button>
+	<button disabled="true" onclick="cancel2clk()" id="cancel2-button">CANCEL2</button>
+	<button disabled="true" onclick="bye2clk()" id="bye2-button">BYE2</button>
+	
+   
+ 
+	
+
+
+ 
+ 
+
+
+
+</body></html>

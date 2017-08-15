@@ -1,0 +1,22 @@
+{
+  "name": "signaling-server",
+  "version": "1.0.0",
+  "description": "a signaling server based on socket.io",
+  "main": "index",
+  "files": [
+    "lib/",
+    "public/"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "github",
+    "url": "https://github.com/johngtx/signaling-server.git"
+  },
+  "dependencies": {
+    "socket.io": "^1.7.3"
+  },
+  "scripts": {
+    "start": "node --use-strict ./index",
+    "test": "node --use-strict ./index"
+  }
+}
